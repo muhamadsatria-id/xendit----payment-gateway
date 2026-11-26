@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Client;
 use App\Models\Payment;
 use App\Models\Transaction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -11,9 +12,19 @@ class PaymentStatusTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected Client $client;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->client = $this->authenticateApiClient();
+    }
+
     private function createPaymentData(): Transaction
     {
         $transaction = Transaction::create([
+            'client_id' => $this->client->id,
             'transaction_number' => 'TRX-TEST-001',
             'customer_name' => 'Test Customer',
             'customer_email' => 'customer@example.com',
@@ -22,9 +33,9 @@ class PaymentStatusTest extends TestCase
             'status' => 'PAID',
             'paid_at' => now(),
             'status_token_hash' => hash(
-            'sha256',
-            'test-status-token-123'
-        ),
+                'sha256',
+                'test-status-token-123'
+            ),
         ]);
 
         Payment::create([
@@ -50,9 +61,11 @@ class PaymentStatusTest extends TestCase
         $transaction = $this->createPaymentData();
 
         $response = $this->getJson(
-    "/api/v1/payments/{$transaction->transaction_number}",
-    ['X-Status-Token' => 'test-status-token-123']
-);
+            "/api/v1/payments/{$transaction->transaction_number}",
+            $this->apiHeaders([
+                'X-Status-Token' => 'test-status-token-123',
+            ])
+        );
 
         $response
             ->assertOk()
@@ -80,7 +93,8 @@ class PaymentStatusTest extends TestCase
     public function test_returns_404_when_transaction_does_not_exist(): void
     {
         $response = $this->getJson(
-            '/api/v1/payments/TRX-NOT-FOUND'
+            '/api/v1/payments/TRX-NOT-FOUND',
+            $this->apiHeaders()
         );
 
         $response
@@ -91,22 +105,24 @@ class PaymentStatusTest extends TestCase
                 'Transaction not found.'
             );
     }
+
     public function test_rejects_status_request_without_token(): void
-{
-    $transaction = $this->createPaymentData();
+    {
+        $transaction = $this->createPaymentData();
 
-    $this->getJson(
-        "/api/v1/payments/{$transaction->transaction_number}"
-    )->assertUnauthorized();
-}
+        $this->getJson(
+            "/api/v1/payments/{$transaction->transaction_number}",
+            $this->apiHeaders()
+        )->assertUnauthorized();
+    }
 
-public function test_rejects_status_request_with_invalid_token(): void
-{
-    $transaction = $this->createPaymentData();
+    public function test_rejects_status_request_with_invalid_token(): void
+    {
+        $transaction = $this->createPaymentData();
 
-    $this->getJson(
-        "/api/v1/payments/{$transaction->transaction_number}",
-        ['X-Status-Token' => 'wrong-token']
-    )->assertUnauthorized();
-}
+        $this->getJson(
+            "/api/v1/payments/{$transaction->transaction_number}",
+            $this->apiHeaders(['X-Status-Token' => 'wrong-token'])
+        )->assertUnauthorized();
+    }
 }

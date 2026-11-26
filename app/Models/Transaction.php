@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Transaction extends Model
 {
     protected $fillable = [
+        'client_id',
         'transaction_number',
         'customer_name',
         'customer_email',
@@ -19,6 +20,9 @@ class Transaction extends Model
         'request_hash',
         'status_token_hash',
         'status_token_encrypted',
+        'success_redirect_url',
+        'failure_redirect_url',
+        'callback_dispatched_at',
     ];
 
     protected $hidden = [
@@ -33,6 +37,7 @@ class Transaction extends Model
         return [
             'amount' => 'integer',
             'paid_at' => 'datetime',
+            'callback_dispatched_at' => 'datetime',
         ];
     }
 

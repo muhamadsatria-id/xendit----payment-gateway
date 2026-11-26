@@ -3,6 +3,7 @@
 namespace App\Services\Payment;
 
 use App\Contracts\PaymentGatewayInterface;
+use App\Exceptions\ClientResourceNotFoundException;
 use App\Exceptions\PaymentGatewayException;
 use App\Exceptions\IdempotencyKeyConflictException;
 use App\Exceptions\PaymentRequestInProgressException;
@@ -20,7 +21,7 @@ class PaymentService
         protected PaymentGatewayInterface $gateway
     ) {}
 
-    public function createPayment(array $data): array
+    public function createPayment(array $data, int $clientId): array
     {
         $idempotencyKey = $data['idempotency_key'];
 
@@ -32,6 +33,12 @@ class PaymentService
             'amount' => (int) $data['amount'],
             'currency' => $currency,
         ];
+
+        foreach (['success_redirect_url', 'failure_redirect_url'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] !== null) {
+                $requestData[$field] = $data[$field];
+            }
+        }
 
         $requestHash = hash(
             'sha256',
@@ -49,18 +56,24 @@ class PaymentService
                     $idempotencyKey,
                     $requestHash,
                     $statusTokenHash,
-                    $statusTokenEncrypted
+                    $statusTokenEncrypted,
+                    $clientId
                 ) {
                     $transaction = Transaction::create([
+                        'client_id' => $clientId,
                         'transaction_number' => 'TRX-' . Str::upper(
                             (string) Str::ulid()
                         ),
-                        
+
                         'customer_name' => $requestData['customer_name'],
                         'customer_email' => $requestData['customer_email'],
                         'amount' => $requestData['amount'],
                         'currency' => $requestData['currency'],
                         'status' => 'PENDING',
+                        'success_redirect_url' =>
+                            $requestData['success_redirect_url'] ?? null,
+                        'failure_redirect_url' =>
+                            $requestData['failure_redirect_url'] ?? null,
                         'idempotency_key' => $idempotencyKey,
                         'request_hash' => $requestHash,
                         'status_token_hash' => $statusTokenHash,
@@ -95,7 +108,8 @@ class PaymentService
 
             return $this->resolveExisting(
                 $existing,
-                $requestHash
+                $requestHash,
+                $clientId
             );
         }
 
@@ -197,8 +211,17 @@ class PaymentService
 
     private function resolveExisting(
         Transaction $transaction,
-        string $requestHash
+        string $requestHash,
+        int $clientId
     ): array {
+        // Idempotency key bersifat global; jangan sampai client lain bisa
+        // mereplay transaksi milik client lain hanya dengan menebak key-nya.
+        if ((int) $transaction->client_id !== $clientId) {
+            throw new ClientResourceNotFoundException(
+                'Transaction not found.'
+            );
+        }
+
         if (! hash_equals(
             (string) $transaction->request_hash,
             $requestHash

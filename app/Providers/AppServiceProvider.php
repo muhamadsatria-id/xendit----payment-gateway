@@ -21,14 +21,27 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        RateLimiter::for('payment-create', function (Request $request) {
+        $clientKey = function (Request $request): string {
+            $client = $request->attributes->get('client');
+
+            return $client
+                ? 'client:' . $client->id
+                : 'ip:' . $request->ip();
+        };
+
+        RateLimiter::for('payment-create', function (Request $request) use ($clientKey) {
             return Limit::perMinute(5)
-                ->by($request->ip());
+                ->by($clientKey($request));
         });
 
-        RateLimiter::for('payment-status', function (Request $request) {
+        RateLimiter::for('payment-status', function (Request $request) use ($clientKey) {
             return Limit::perMinute(30)
-                ->by($request->ip());
+                ->by($clientKey($request));
+        });
+
+        RateLimiter::for('webhook', function (Request $request) {
+            return Limit::perMinute(100)
+                ->by('ip:' . $request->ip());
         });
     }
 }

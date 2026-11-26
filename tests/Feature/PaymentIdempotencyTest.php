@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Contracts\PaymentGatewayInterface;
+use App\Models\Client;
 use App\Models\Payment;
 use App\Models\Transaction;
 use App\Services\Payment\PaymentService;
@@ -17,11 +18,15 @@ class PaymentIdempotencyTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected Client $client;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        RateLimiter::clear('127.0.0.1');
+        $this->client = $this->authenticateApiClient();
+
+        RateLimiter::clear('client:' . $this->client->id);
     }
 
     private function paymentPayload(int $amount = 150000): array
@@ -59,11 +64,10 @@ class PaymentIdempotencyTest extends TestCase
 
         $payload = $this->paymentPayload();
 
-        // Request pertama.
         $firstResponse = $this->postJson(
             '/api/v1/payments',
             $payload,
-            ['Idempotency-Key' => 'order-test-001']
+            $this->apiHeaders(['Idempotency-Key' => 'order-test-001'])
         );
 
         $firstResponse
@@ -72,14 +76,12 @@ class PaymentIdempotencyTest extends TestCase
 
         $firstToken = $firstResponse->json('data.status_token');
 
-        // Pastikan token berhasil dibuat.
         $this->assertNotEmpty($firstToken);
 
-        // Request kedua menggunakan key dan payload yang sama.
         $secondResponse = $this->postJson(
             '/api/v1/payments',
             $payload,
-            ['Idempotency-Key' => 'order-test-001']
+            $this->apiHeaders(['Idempotency-Key' => 'order-test-001'])
         );
 
         $secondResponse
@@ -92,28 +94,20 @@ class PaymentIdempotencyTest extends TestCase
 
         $secondToken = $secondResponse->json('data.status_token');
 
-        // Token harus sama pada kedua request.
         $this->assertSame($firstToken, $secondToken);
-
-        // Pastikan tidak ada transaksi atau payment duplikat.
         $this->assertDatabaseCount('transactions', 1);
         $this->assertDatabaseCount('payments', 1);
 
-        // Pastikan hash di database bukan token plaintext.
         $transaction = Transaction::firstOrFail();
 
         $this->assertNotSame(
             $firstToken,
             $transaction->status_token_hash
         );
-
-        // Pastikan hash benar-benar sesuai dengan token asli.
         $this->assertSame(
             hash('sha256', $firstToken),
             $transaction->status_token_hash
         );
-
-        // Pastikan token terenkripsi tersedia.
         $this->assertNotEmpty(
             $transaction->status_token_encrypted
         );
@@ -126,13 +120,13 @@ class PaymentIdempotencyTest extends TestCase
         $this->postJson(
             '/api/v1/payments',
             $this->paymentPayload(150000),
-            ['Idempotency-Key' => 'order-test-002']
+            $this->apiHeaders(['Idempotency-Key' => 'order-test-002'])
         )->assertCreated();
 
         $response = $this->postJson(
             '/api/v1/payments',
             $this->paymentPayload(250000),
-            ['Idempotency-Key' => 'order-test-002']
+            $this->apiHeaders(['Idempotency-Key' => 'order-test-002'])
         );
 
         $response
@@ -153,6 +147,7 @@ class PaymentIdempotencyTest extends TestCase
         );
 
         $transaction = Transaction::create([
+            'client_id' => $this->client->id,
             'transaction_number' => 'TRX-IDEMPOTENCY-001',
             'customer_name' => $payload['customer_name'],
             'customer_email' => $payload['customer_email'],
@@ -184,7 +179,7 @@ class PaymentIdempotencyTest extends TestCase
         $response = $this->postJson(
             '/api/v1/payments',
             $payload,
-            ['Idempotency-Key' => 'order-test-003']
+            $this->apiHeaders(['Idempotency-Key' => 'order-test-003'])
         );
 
         $response
@@ -208,7 +203,7 @@ class PaymentIdempotencyTest extends TestCase
                 $nested = $this->postJson(
                     '/api/v1/payments',
                     $payload,
-                    ['Idempotency-Key' => $key]
+                    $this->apiHeaders(['Idempotency-Key' => $key])
                 );
 
                 $nested->assertStatus(409);
@@ -230,7 +225,7 @@ class PaymentIdempotencyTest extends TestCase
         $outer = $this->postJson(
             '/api/v1/payments',
             $payload,
-            ['Idempotency-Key' => $key]
+            $this->apiHeaders(['Idempotency-Key' => $key])
         );
 
         $outer->assertCreated();
@@ -245,6 +240,7 @@ class PaymentIdempotencyTest extends TestCase
         $key = 'order-test-db-error';
 
         Transaction::create([
+            'client_id' => $this->client->id,
             'transaction_number' => 'TRX-IDEMPOTENCY-DB-ERROR',
             'customer_name' => $payload['customer_name'],
             'customer_email' => $payload['customer_email'],
@@ -283,7 +279,8 @@ class PaymentIdempotencyTest extends TestCase
         $this->expectException(QueryException::class);
 
         app(PaymentService::class)->createPayment(
-            array_merge($payload, ['idempotency_key' => $key])
+            array_merge($payload, ['idempotency_key' => $key]),
+            $this->client->id
         );
     }
 }

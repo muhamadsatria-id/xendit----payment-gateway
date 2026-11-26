@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Client;
 use App\Models\Payment;
 use App\Models\PaymentLog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,11 +14,15 @@ class PaymentServiceAuditTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected Client $client;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        RateLimiter::clear('127.0.0.1');
+        $this->client = $this->authenticateApiClient();
+
+        RateLimiter::clear('client:' . $this->client->id);
 
         config([
             'services.xendit.secret_key' => 'xnd_test_secret',
@@ -56,7 +61,9 @@ class PaymentServiceAuditTest extends TestCase
         $response = $this->postJson(
             '/api/v1/payments',
             $this->payload(),
-            ['Idempotency-Key' => 'audit-timeout-001']
+            $this->apiHeaders([
+                'Idempotency-Key' => 'audit-timeout-001',
+            ])
         );
 
         $response
@@ -101,7 +108,9 @@ class PaymentServiceAuditTest extends TestCase
         $response = $this->postJson(
             '/api/v1/payments',
             $this->payload(),
-            ['Idempotency-Key' => 'audit-4xx-001']
+            $this->apiHeaders([
+                'Idempotency-Key' => 'audit-4xx-001',
+            ])
         );
 
         $response
@@ -138,7 +147,9 @@ class PaymentServiceAuditTest extends TestCase
         $this->postJson(
             '/api/v1/payments',
             $this->payload(),
-            ['Idempotency-Key' => 'audit-log-001']
+            $this->apiHeaders([
+                'Idempotency-Key' => 'audit-log-001',
+            ])
         )->assertCreated();
 
         $logs = json_encode(
@@ -166,7 +177,9 @@ class PaymentServiceAuditTest extends TestCase
         $this->postJson(
             '/api/v1/payments',
             $this->payload(),
-            ['Idempotency-Key' => 'audit-amount-001']
+            $this->apiHeaders([
+                'Idempotency-Key' => 'audit-amount-001',
+            ])
         )->assertCreated();
 
         $payment = Payment::firstOrFail();

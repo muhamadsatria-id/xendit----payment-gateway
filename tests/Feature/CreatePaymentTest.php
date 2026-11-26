@@ -1,27 +1,43 @@
 <?php
 
-use Tests\TestCase;
+use App\Models\Client;
+use App\Models\Payment;
+use App\Models\Transaction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
-use App\Models\Transaction;
-use App\Models\Payment;
+use Tests\TestCase;
 
 class CreatePaymentTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected Client $client;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->client = $this->authenticateApiClient();
+    }
+
     public function test_payment_creation_requires_idempotency_key(): void
     {
-        $response = $this->postJson('/api/v1/payments', [
-            'customer_name' => 'Test Customer',
-            'customer_email' => 'customer@example.com',
-            'amount' => 150000,
-            'currency' => 'IDR',
-        ]);
+        $response = $this->postJson(
+            '/api/v1/payments',
+            [
+                'customer_name' => 'Test Customer',
+                'customer_email' => 'customer@example.com',
+                'amount' => 150000,
+                'currency' => 'IDR',
+            ],
+            $this->apiHeaders()
+        );
 
         $response
             ->assertUnprocessable()
             ->assertJsonValidationErrors('idempotency_key');
     }
+
     public function test_customer_can_create_payment(): void
     {
         config([
@@ -39,14 +55,18 @@ class CreatePaymentTest extends TestCase
             ], 200),
         ]);
 
-        $response = $this->postJson('/api/v1/payments', [
-            'customer_name' => 'John Doe',
-            'customer_email' => 'john@example.com',
-            'amount' => 150000,
-            'currency' => 'IDR',
-        ], [
-            'Idempotency-Key' => 'create-payment-test-001',
-        ]);
+        $response = $this->postJson(
+            '/api/v1/payments',
+            [
+                'customer_name' => 'John Doe',
+                'customer_email' => 'john@example.com',
+                'amount' => 150000,
+                'currency' => 'IDR',
+            ],
+            $this->apiHeaders([
+                'Idempotency-Key' => 'create-payment-test-001',
+            ])
+        );
 
         $response->assertCreated()
             ->assertJsonPath('success', true)
@@ -56,6 +76,7 @@ class CreatePaymentTest extends TestCase
             );
 
         $this->assertDatabaseHas('transactions', [
+            'client_id' => $this->client->id,
             'customer_email' => 'john@example.com',
             'amount' => 150000,
             'status' => 'PENDING',
@@ -78,13 +99,17 @@ class CreatePaymentTest extends TestCase
 
     public function test_payment_request_validation_fails(): void
     {
-        $response = $this->postJson('/api/v1/payments', [
-            'customer_name' => '',
-            'customer_email' => 'invalid-email',
-            'amount' => 100,
-        ], [
-            'Idempotency-Key' => 'create-payment-test-002',
-        ]);
+        $response = $this->postJson(
+            '/api/v1/payments',
+            [
+                'customer_name' => '',
+                'customer_email' => 'invalid-email',
+                'amount' => 100,
+            ],
+            $this->apiHeaders([
+                'Idempotency-Key' => 'create-payment-test-002',
+            ])
+        );
 
         $response->assertUnprocessable()
             ->assertJsonValidationErrors([

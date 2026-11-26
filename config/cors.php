@@ -13,9 +13,18 @@ return [
         'OPTIONS',
     ],
 
-    'allowed_origins' => [
-        env('FRONTEND_URL', 'http://localhost:3000'),
-    ],
+    'allowed_origins' => array_values(array_filter(
+        array_map(
+            'trim',
+            explode(
+                ',',
+                (string) env(
+                    'CORS_ALLOWED_ORIGINS',
+                    env('FRONTEND_URL', 'http://localhost:3000')
+                )
+            )
+        )
+    )),
 
     'allowed_origins_patterns' => [],
 
@@ -23,6 +32,7 @@ return [
         'Accept',
         'Content-Type',
         'X-Requested-With',
+        'X-API-Key',
         'Idempotency-Key',
         'X-Status-Token',
     ],

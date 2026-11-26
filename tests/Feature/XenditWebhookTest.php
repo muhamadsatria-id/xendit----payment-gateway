@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use App\Contracts\PaymentGatewayInterface;
 use App\Models\Transaction;
 use App\Models\Payment;
@@ -18,6 +19,8 @@ class XenditWebhookTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        RateLimiter::clear('ip:127.0.0.1');
 
         config([
             'services.xendit.secret_key' => 'xnd_test_secret',

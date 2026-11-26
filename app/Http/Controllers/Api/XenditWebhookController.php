@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\WebhookRequest;
 use App\Services\Payment\Webhooks\XenditWebhookService;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 
@@ -14,35 +14,11 @@ class XenditWebhookController extends Controller
         protected XenditWebhookService $webhookService
     ) {}
 
-    public function handle(Request $request): JsonResponse
+    public function handle(WebhookRequest $request): JsonResponse
     {
-        $callbackToken = config('services.xendit.webhook_token');
-        $receivedToken = $request->header('x-callback-token');
-
-        if (
-            empty($callbackToken) ||
-            empty($receivedToken) ||
-            ! hash_equals($callbackToken, $receivedToken)
-        ) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid webhook token.',
-            ], 401);
-        }
-
-        // Validate required invoice ID before calling the gateway.
-        $invoiceId = $request->input('id');
-
-        if (! is_string($invoiceId) || trim($invoiceId) === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invoice ID is required.',
-            ], 400);
-        }
-
         try {
             $result = $this->webhookService->handle(
-                $request->all()
+                $request->validated()
             );
 
             return response()->json([
@@ -50,9 +26,8 @@ class XenditWebhookController extends Controller
                 'message' => $result['message'],
                 'processed' => $result['processed'],
             ]);
-
         } catch (\Throwable $e) {
-            // Do not expose or log raw provider/database error messages.
+            // Jangan mengekspos atau mencatat pesan error provider/database mentah.
             Log::error('Xendit webhook processing failed.', [
                 'exception_class' => get_class($e),
             ]);
